@@ -1,0 +1,7 @@
+.venv/*
+
+# Data for training and testing
+*.jpg
+*.txt
+
+data/*
