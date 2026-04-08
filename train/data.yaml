@@ -1,6 +1,9 @@
-path: ../data
-train: images/train
-val: images/val
+# /home/guest/fish_project/data/dataset1/data.yaml
 
+path: /home/guest/fish_project/data/dataset1 # 데이터셋 루트 절대경로
+train: images/train                          # path 기준 학습 이미지 경로
+val: images/val                              # path 기준 검증 이미지 경로
+
+nc: 1
 names:
-  0: fish
+  0: Fish
