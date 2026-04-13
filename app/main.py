@@ -10,11 +10,25 @@ from ultralytics import YOLO
 
 app = FastAPI(title="Fish YOLO Inference API")
 
-MODEL_PATH = "/fish_project/ai/model/fish_yolo26m/weights/best.pt"
+ROOT_DIR = Path(__file__).resolve().parent
+MODEL_PATH = ROOT_DIR / "model" / "fish_yolo26m" / "weights" / "best.pt"
 MEDIA_ROOT = Path("/fish_project/backend/media").resolve()
 
-# 서버 시작 시 1회 로드
-model = YOLO(MODEL_PATH)
+ROOT_DIR = Path("/home/guest/fish_project").resolve()
+DEFAULT_MODEL_PATH = ROOT_DIR/ai/model/fish_yolo26m/weights/best.pt
+DEFAULT_MEDIA_ROOT = ROOT_DIR/backend/media
+
+MODEL_PATH = Path(os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH))).resolve()
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(DEFAULT_MEDIA_ROOT))).resolve()
+
+SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
+
+
+
+if not MODEL_PATH.exists():
+    raise RuntimeError(f"YOLO 모델 파일을 찾을 수 없습니다: {MODEL_PATH}")
+
+model = YOLO(str(MODEL_PATH))
 
 
 class VideoInferRequest(BaseModel):
