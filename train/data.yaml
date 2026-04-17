@@ -6,4 +6,4 @@ val: images/val                              # path 기준 검증 이미지 경�
 
 nc: 1
 names:
-  0: Fish
+  0: fish
