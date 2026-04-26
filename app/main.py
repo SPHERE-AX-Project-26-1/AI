@@ -33,7 +33,7 @@ if not MODEL_PATH.exists():
 model = YOLO(str(MODEL_PATH))
 
 
-# 리퀘스트 형식 정의 클래스
+# 추론 리퀘스트 형식 정의 클래스
 class VideoInferRequest(BaseModel):
     # video_id: Optional[int] = Field(default=None, description="DB에 저장된 영상id값")
     video_path: str = Field(..., description="백엔드에서 전달받는 영상 저장 경로")
@@ -51,6 +51,27 @@ class VideoInferRequest(BaseModel):
     save_annotated: bool = Field(
         False,
         description="박스가 그려진 분석 결과 영상 저장 여부",
+    )
+
+# 트래킹 리퀘스트 형식 정의 클래스
+class VideoTrackRequest(BaseModel):
+    video_path: str = Field(..., description="백엔드에서 전달받는 영상 저장 경로")
+    conf: float = Field(0.25, ge=0.0, le=1.0, description="신뢰도 값(이 점수 이상만 인식)")
+    imgsz: int = Field(640, gt=0, description="각 프레임 처리할 때 이미지 사이즈")
+    vid_stride: int = Field(1, ge=1, description="몇 프레임마다 추론할 지")
+    include_frames: bool = Field(False, description="프레임별 상세 결과 포함 여부")
+    save_thumbnail: bool = Field(True, description="썸네일 생성 여부")
+    save_annotated: bool = Field(False, description="박스가 그려진 분석 결과 영상 저장 여부")
+
+    tracker: str = Field(
+        "botsort.yaml",
+        description="tracking 설정 파일(bytetrack.yaml로 바꿔도 됨)"
+    )
+    iou: float = Field(
+        0.7,
+        ge=0.0,
+        le=1.0,
+        description="tracking 시 같은 개체로 판단하는 기준치"
     )
 
 
@@ -264,6 +285,153 @@ def run_inference(req: VideoInferRequest) -> dict:
 
     }
 
+# AI 모델 기반 트래킹 함수(같은 개체인지 구별)
+def run_track(req: VideoTrackRequest) -> dict:
+    video_path = validate_media_path(req.video_path)
+    video_meta = get_video_meta(video_path)
+
+    if req.tracker not in {"botsort.yaml", "bytetrack.yaml"}:
+        raise HTTPException(
+            status_code=400,
+            detail="tracker는 'botsort.yaml' 또는 'bytetrack.yaml' 이어야 합니다."
+        )
+
+    thumbnail_rel_path: Optional[str] = None
+    if req.save_thumbnail:
+        thumbnail_abs_path = create_thumbnail(video_path)
+        thumbnail_rel_path = to_media_relative_path(thumbnail_abs_path)
+
+    track_kwargs = {
+        "source": str(video_path),
+        "conf": req.conf,
+        "iou": req.iou,
+        "imgsz": req.imgsz,
+        "vid_stride": req.vid_stride,
+        "stream": True,
+        "verbose": False,
+        "save": False,
+        "tracker": req.tracker,
+    }
+
+    annotated_rel_path: Optional[str] = None
+    save_dir = None
+    if req.save_annotated:
+        save_dir = build_annotated_dir(video_path)
+        track_kwargs.update(
+            {
+                "save": True,
+                "project": str(save_dir.parent),
+                "name": save_dir.name,
+                "exist_ok": True,
+            }
+        )
+
+    try:
+        results = model.track(**track_kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"YOLO tracking 중 오류가 발생했습니다: {e}")
+
+    class_summary = defaultdict(int)   # 프레임 단위 전체 검출 합
+    fish_track_ids = set()             # 영상 전체 고유 fish track_id 집합
+    total_detections = 0
+    fish_detection_sum = 0             # 기존 infer 방식과 비교용
+    tracked_detection_count = 0
+    num_frames_processed = 0
+    frames = [] if req.include_frames else None
+
+    fps = video_meta["fps"] if video_meta["fps"] > 0 else 0.0
+
+    try:
+        for idx, result in enumerate(results):
+            num_frames_processed += 1
+            detections = [] if req.include_frames else None
+
+            if result.boxes is not None and len(result.boxes) > 0:
+                boxes = result.boxes.xyxy.cpu().tolist()
+                confs = result.boxes.conf.cpu().tolist()
+                clses = result.boxes.cls.cpu().tolist()
+
+                if hasattr(result.boxes, "id") and result.boxes.id is not None:
+                    track_ids = result.boxes.id.cpu().tolist()
+                else:
+                    track_ids = [None] * len(boxes)
+
+                for box, score, cls_id, track_id in zip(boxes, confs, clses, track_ids):
+                    cls_id = int(cls_id)
+                    class_name = str(result.names.get(cls_id, str(cls_id))).strip().lower()
+
+                    class_summary[class_name] += 1
+                    total_detections += 1
+
+                    if class_name == "fish":
+                        fish_detection_sum += 1
+
+                    if track_id is not None:
+                        track_id = int(track_id)
+                        tracked_detection_count += 1
+
+                    if class_name == "fish" and track_id is not None:
+                        fish_track_ids.add(track_id)
+
+                    if req.include_frames:
+                        detections.append(
+                            {
+                                "track_id": track_id,
+                                "class_id": cls_id,
+                                "class_name": class_name,
+                                "confidence": round(float(score), 4),
+                                "bbox_xyxy": [round(float(v), 2) for v in box],
+                            }
+                        )
+
+            if req.include_frames:
+                frame_index = idx * req.vid_stride
+                time_sec = round(frame_index / fps, 3) if fps > 0 else None
+                frames.append(
+                    {
+                        "frame_index": frame_index,
+                        "time_sec": time_sec,
+                        "detections": detections,
+                    }
+                )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"tracking 결과 후처리 중 오류가 발생했습니다: {e}")
+
+    if req.save_annotated and save_dir is not None:
+        candidate = save_dir / video_path.name
+        if candidate.exists():
+            annotated_rel_path = to_media_relative_path(candidate)
+
+    return {
+        "status": "success",
+        "video_path": str(video_path),
+        "count_mode": "unique_fish_track_ids",
+        "video_meta": video_meta,
+        "params": {
+            "conf": req.conf,
+            "iou": req.iou,
+            "imgsz": req.imgsz,
+            "vid_stride": req.vid_stride,
+            "include_frames": req.include_frames,
+            "save_thumbnail": req.save_thumbnail,
+            "save_annotated": req.save_annotated,
+            "tracker": req.tracker,
+        },
+        "thumbnail_path": thumbnail_rel_path,
+        "annotated_video_path": annotated_rel_path,
+        "fish_count": len(fish_track_ids),
+        "summary": {
+            "num_frames_processed": num_frames_processed,
+            "total_detections": total_detections,
+            "fish_detection_sum": fish_detection_sum,
+            "tracked_detection_count": tracked_detection_count,
+            "unique_fish_track_ids": sorted(list(fish_track_ids)),
+            "class_summary": dict(class_summary),
+        },
+        "frames": frames,
+    }
+
 
 @router.get("/ping")
 def ping():
@@ -281,5 +449,9 @@ def status_check():
 @router.post("/infer")
 def infer(req: VideoInferRequest):
     return run_inference(req)
+
+@router.post("/track")
+def track(req: VideoTrackRequest):
+    return run_track(req)
 
 app.include_router(router)
