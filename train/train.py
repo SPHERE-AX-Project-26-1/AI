@@ -13,14 +13,17 @@ def main():
         data=str(data_yaml),
         epochs=100,
         imgsz=640,
-        batch=16,
+        batch=-1,
         device=0,
-        save=True,
+        workers=8,
+        amp=True,
+        patience=30,
         pretrained=True,
-        exist_ok=True,
         val=True,
+        plots=True,
         project=str(project_dir),
         name="fish_yolo26m",
+        exist_ok=True,
     )
 
     print(results)
