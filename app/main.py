@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
 DEFAULT_MODEL_PATH = ROOT_DIR/"ai"/"model"/"fish_yolo26m"/"weights"/"best.pt"
 DEFAULT_MEDIA_PATH = ROOT_DIR/"backend"/"media"
-DEFAULT_CLS_MODEL_PATH = ROOT_DIR/"ai"/"model"/"skygazor_cls_yolo26m"/"weights"/"best.pt"
+DEFAULT_CLS_MODEL_PATH = ROOT_DIR/"ai"/"model"/"skygazer_cls_yolo26m"/"weights"/"best.pt"
 
 
 # 환경변수가 있으면 받아오고 아니라면 위에 써둔 default path 사용
@@ -216,7 +216,7 @@ def normalize_species_name(name: str) -> str:
     name = str(name).strip().lower()
 
     if name in {"skygazor", "skygazer"}:
-        return "skygazor"
+        return "skygazer"
 
     if name in {"others", "other"}:
         return "others"
@@ -742,7 +742,7 @@ def run_species_track(req: VideoSpeciesTrackRequest) -> dict:
         },
         "thumbnail_path": thumbnail_rel_path,
         "fish_count": len(tracks),
-        "skygazor_count": track_level_species_summary.get("skygazor", 0),
+        "skygazer_count": track_level_species_summary.get("skygazer", 0),
         "others_count": track_level_species_summary.get("others", 0),
         "unknown_count": track_level_species_summary.get("unknown", 0),
         "summary": {
