@@ -5,7 +5,7 @@ from ultralytics import YOLO
 def main():
     base_dir = Path(__file__).resolve().parent
     root_dir = base_dir.parent.parent
-    data_dir = root_dir / "data" / "skygazor_cls"
+    data_dir = root_dir / "data" / "skygazer_cls"
     project_dir = base_dir.parent / "model"
 
     model = YOLO("yolo26m-cls.pt")
@@ -21,7 +21,7 @@ def main():
         exist_ok=True,
         val=True,
         project=str(project_dir),
-        name="skygazor_cls_yolo26m",
+        name="skygazer_cls_yolo26m",
         patience=15,
         plots=True,
     )
